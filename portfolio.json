@@ -1,0 +1,45 @@
+{
+  "stocks": [
+    {
+      "name": "Tata Consultancy Services",
+      "sector": "IT",
+      "symbol": "TCS"
+    },
+    {
+      "name": "Infosys",
+      "sector": "IT",
+      "symbol": "INFY"
+    },
+    {
+      "name": "Reliance Industries",
+      "sector": "Energy",
+      "symbol": "RELIANCE"
+    },
+    {
+      "name": "HDFC Bank",
+      "sector": "Banking",
+      "symbol": "HDFCBANK"
+    },
+    {
+      "name": "ICICI Bank",
+      "sector": "Banking",
+      "symbol": "ICICIBANK"
+    }
+  ],
+  "sectors": [
+    "IT",
+    "Energy",
+    "Banking"
+  ],
+  "profile": {
+    "focus_areas": [
+      "earnings reports",
+      "RBI policy",
+      "sector rotations",
+      "global market impact on India"
+    ],
+    "investment_horizon": "long-term",
+    "name": "Investor",
+    "risk_tolerance": "moderate"
+  }
+}
