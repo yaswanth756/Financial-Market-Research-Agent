@@ -10,12 +10,28 @@ import {
     Briefcase,
     TrendingUp,
     TrendingDown,
-    Activity
+    Activity,
+    Trash2,
+    Clock,
 } from 'lucide-react';
 import SettingsModal from './SettingsModal';
 
+interface Session {
+    id: string;
+    title: string;
+    messages: { role: string; content: string }[];
+    routeEmoji: string;
+    symbols: string[];
+    createdAt: number;
+}
+
 interface SidebarProps {
     isOpen: boolean;
+    sessions: Session[];
+    activeSessionId: string | null;
+    onNewChat: () => void;
+    onSelectSession: (id: string) => void;
+    onDeleteSession: (id: string) => void;
 }
 
 interface PortfolioItem {
@@ -24,7 +40,17 @@ interface PortfolioItem {
     sector: string;
 }
 
-export default function Sidebar({ isOpen }: SidebarProps) {
+function timeAgo(ts: number): string {
+    const diff = Date.now() - ts;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'now';
+    if (mins < 60) return `${mins}m`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h`;
+    return `${Math.floor(hrs / 24)}d`;
+}
+
+export default function Sidebar({ isOpen, sessions, activeSessionId, onNewChat, onSelectSession, onDeleteSession }: SidebarProps) {
     const [portfolio, setPortfolio] = useState<PortfolioItem[]>([]);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -38,14 +64,12 @@ export default function Sidebar({ isOpen }: SidebarProps) {
             .catch(err => console.error("Sidebar fetch error", err));
     };
 
-    // Initial fetch + re-fetch on focus (in case edited in another tab)
     useEffect(() => {
         fetchPortfolio();
         window.addEventListener('focus', fetchPortfolio);
         return () => window.removeEventListener('focus', fetchPortfolio);
     }, []);
 
-    // Also re-fetch when settings modal closes
     useEffect(() => {
         if (!isSettingsOpen) fetchPortfolio();
     }, [isSettingsOpen]);
@@ -64,7 +88,7 @@ export default function Sidebar({ isOpen }: SidebarProps) {
                 <div className="p-4 space-y-4">
                     <button
                         className="flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl bg-white text-black hover:bg-zinc-200 shadow-lg shadow-white/5 transition-all font-medium text-sm group"
-                        onClick={() => window.location.reload()}
+                        onClick={onNewChat}
                     >
                         <Plus size={18} className="group-hover:rotate-90 transition-transform" />
                         <span>New Analysis</span>
@@ -73,6 +97,79 @@ export default function Sidebar({ isOpen }: SidebarProps) {
 
                 {/* Navigation / History */}
                 <div className="flex-1 overflow-y-auto px-3 py-2 space-y-6 custom-scrollbar">
+
+                    {/* Section: Session History (Dynamic) */}
+                    <div>
+                        <div className="text-[11px] font-bold text-zinc-500 mb-3 px-3 uppercase tracking-widest flex items-center justify-between">
+                            <span>Recent History</span>
+                            <div className="flex items-center gap-1.5">
+                                {sessions.length > 0 && (
+                                    <span className="text-[9px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded-full font-bold">{sessions.length}</span>
+                                )}
+                                <Clock size={12} />
+                            </div>
+                        </div>
+                        <div className="space-y-0.5">
+                            {sessions.length > 0 ? (
+                                sessions.map((session) => {
+                                    const isActive = session.id === activeSessionId;
+                                    const msgCount = session.messages.filter(m => m.role === 'user').length;
+                                    return (
+                                        <div
+                                            key={session.id}
+                                            onClick={() => onSelectSession(session.id)}
+                                            role="button"
+                                            tabIndex={0}
+                                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelectSession(session.id); }}
+                                            className={`flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg transition-all text-sm group text-left relative cursor-pointer
+                                                ${isActive
+                                                    ? 'bg-zinc-800/80 text-zinc-100 border border-zinc-700/50'
+                                                    : 'hover:bg-zinc-900 text-zinc-400 hover:text-zinc-200 border border-transparent'
+                                                }`}
+                                        >
+                                            <span className="shrink-0 text-base">{session.routeEmoji}</span>
+                                            <div className="flex-1 min-w-0">
+                                                <div className={`truncate text-[13px] ${isActive ? 'font-semibold' : ''}`}>
+                                                    {session.title}
+                                                </div>
+                                                <div className="flex items-center gap-1.5 mt-0.5">
+                                                    <span className="text-[10px] text-zinc-600">{timeAgo(session.createdAt)}</span>
+                                                    {msgCount > 0 && (
+                                                        <span className="text-[9px] text-zinc-600">· {msgCount} {msgCount === 1 ? 'msg' : 'msgs'}</span>
+                                                    )}
+                                                    {session.symbols && session.symbols.length > 0 && (
+                                                        <>
+                                                            <span className="text-[9px] text-zinc-700">·</span>
+                                                            {session.symbols.slice(0, 2).map((sym, j) => (
+                                                                <span key={j} className="text-[9px] bg-zinc-800/80 text-zinc-500 px-1 py-0.5 rounded font-medium">{sym}</span>
+                                                            ))}
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            {/* Delete button */}
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onDeleteSession(session.id);
+                                                }}
+                                                className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-700 text-zinc-600 hover:text-red-400 transition-all shrink-0"
+                                                title="Delete"
+                                            >
+                                                <Trash2 size={13} />
+                                            </button>
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                <div className="px-3 py-6 text-xs text-zinc-600 italic text-center">
+                                    <MessageSquare size={20} className="mx-auto mb-2 text-zinc-700" />
+                                    <div>No conversations yet.</div>
+                                    <div className="mt-1 text-zinc-700">Click "New Analysis" to start!</div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
 
                     {/* Section: Your Portfolio */}
                     <div>
@@ -86,7 +183,6 @@ export default function Sidebar({ isOpen }: SidebarProps) {
                                     <div key={i} className="group flex items-center gap-2 w-full px-2 py-2 rounded-lg hover:bg-zinc-900/50 transition-colors text-zinc-400 hover:text-zinc-200 cursor-pointer text-sm">
                                         <div className={`w-1.5 h-1.5 rounded-full ${i % 2 === 0 ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'}`} />
                                         <span className="font-medium text-zinc-300 w-12">{stock.symbol}</span>
-                                        
                                     </div>
                                 ))
                             ) : (
@@ -103,28 +199,7 @@ export default function Sidebar({ isOpen }: SidebarProps) {
                         </div>
                     </div>
 
-                    {/* Section: Recent Chats */}
-                    <div>
-                        <div className="text-[11px] font-bold text-zinc-500 mb-3 px-3 uppercase tracking-widest flex items-center justify-between">
-                            <span>Recent History</span>
-                            <MessageSquare size={12} />
-                        </div>
-                        <div className="space-y-1">
-                            {['Morning Briefing (Today)', 'TCS Earnings Analysis', 'HDFC Bank Strategy'].map((item, i) => (
-                                <button
-                                    key={i}
-                                    className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg hover:bg-zinc-900 transition-colors text-zinc-400 hover:text-zinc-200 text-sm group text-left"
-                                >
-                                    <span className="truncate flex-1">{item}</span>
-                                    <span className="opacity-0 group-hover:opacity-100 text-xs text-zinc-600 transition-opacity">
-                                        {i === 0 ? '2h' : '1d'}
-                                    </span>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Section: Watchlist (Static Demo) */}
+                    {/* Section: Watchlist */}
                     <div>
                         <div className="text-[11px] font-bold text-zinc-500 mb-3 px-3 uppercase tracking-widest flex items-center justify-between">
                             <span>Watchlist</span>
@@ -158,10 +233,6 @@ export default function Sidebar({ isOpen }: SidebarProps) {
                         </div>
                         <Settings size={16} className="text-zinc-600 group-hover:text-zinc-400 transition-colors" />
                     </button>
-                    {/* Sign out hint */}
-                    <div className="text-[10px] text-center text-zinc-600 mt-2 opacity-0 group-hover:opacity-50 transition-opacity">
-                        Click to manage profile
-                    </div>
                 </div>
             </div>
         </>

@@ -16,7 +16,9 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from sentence_transformers import SentenceTransformer, CrossEncoder
-from langchain_chroma import Chroma
+from langchain_qdrant import QdrantVectorStore
+from qdrant_client import QdrantClient
+from user_config import QDRANT_URL, QDRANT_API_KEY, QDRANT_COLLECTION
 from langchain_core.documents import Document
 import os
 
@@ -25,14 +27,16 @@ os.environ['HF_HUB_DISABLE_SSL_VERIFY'] = '1'
 # ============================================================================
 # LOCAL EMBEDDINGS (Same as news_stream.py)
 # ============================================================================
-class LocalEmbeddings:
+from langchain_core.embeddings import Embeddings
+
+class LocalEmbeddings(Embeddings):
     def __init__(self, model_name="all-MiniLM-L6-v2"):
         self.model = SentenceTransformer(model_name)
     
-    def embed_documents(self, texts):
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
         return self.model.encode(texts).tolist()
     
-    def embed_query(self, text):
+    def embed_query(self, text: str) -> list[float]:
         return self.model.encode(text).tolist()
 
 # ============================================================================
@@ -203,13 +207,20 @@ class SmartRetriever:
         self.hyde = HyDEGenerator()
         self.reranker = Reranker()
         
-        # Connect to ChromaDB
-        print("🔄 Connecting to ChromaDB...")
-        self.db = Chroma(
-            persist_directory=db_path, 
-            embedding_function=self.embeddings
-        )
-        print("✅ Connected to database!")
+        # Connect to Qdrant (Cloud)
+        print("🔄 Connecting to Qdrant Cloud...")
+        try:
+            client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+            self.db = QdrantVectorStore(
+                client=client,
+                collection_name=QDRANT_COLLECTION,
+                embedding=self.embeddings
+            )
+            print("✅ Connected to database!")
+        except Exception as e:
+            print(f"❌ Connection Error: {e}")
+            self.db = None
+        
         print("="*60 + "\n")
     
     def search(self, query: str, use_hyde: bool = True, top_k: int = 5, initial_k: int = 20) -> list:

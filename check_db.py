@@ -1,50 +1,58 @@
 
 import os
 import warnings
-from langchain_chroma import Chroma
-from sentence_transformers import SentenceTransformer
+from qdrant_client import QdrantClient
+from user_config import QDRANT_URL, QDRANT_API_KEY, QDRANT_COLLECTION
 
 # Suppress warnings
 warnings.filterwarnings('ignore')
 os.environ['HF_HUB_DISABLE_SSL_VERIFY'] = '1'
 os.environ['CURL_CA_BUNDLE'] = ''
 
-# Custom embedding class that works offline (same as in news_stream.py)
-class LocalEmbeddings:
-    def __init__(self, model_name="all-MiniLM-L6-v2"):
-        print("🔄 Loading local embedding model...")
-        self.model = SentenceTransformer(model_name)
-    
-    def embed_documents(self, texts):
-        return self.model.encode(texts).tolist()
-    
-    def embed_query(self, text):
-        return self.model.encode(text).tolist()
+def check_qdrant():
+    print("🔄 Connecting to Qdrant Cloud...")
+    try:
+        client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+        
+        # Check if collection exists
+        collections = client.get_collections()
+        exists = any(c.name == QDRANT_COLLECTION for c in collections.collections)
+        
+        if not exists:
+            print(f"❌ Collection '{QDRANT_COLLECTION}' not found!")
+            return
 
-try:
-    print("Connecting to ChromaDB...")
-    embeddings = LocalEmbeddings()
-    db = Chroma(persist_directory="./market_mind_db", embedding_function=embeddings)
-    
-    # Get all documents
-    print("Fetching collection stats...")
-    collection_data = db.get()
-    count = len(collection_data['ids'])
-    print(f"Total documents in DB: {count}")
-    
-    if count > 0:
-        print("\nLast 3 added documents (by ID order, approximation):")
-        # Chroma IDs are usually hashes, so order isn't guaranteed chronologically by ID, 
-        # but let's see what metadata we have
-        metadatas = collection_data['metadatas']
-        sources = {}
-        for m in metadatas:
-            src = m.get('source', 'Unknown')
-            sources[src] = sources.get(src, 0) + 1
+        print(f"✅ Collection '{QDRANT_COLLECTION}' found!")
+        
+        # Get stats
+        count_result = client.count(QDRANT_COLLECTION)
+        count = count_result.count
+        print(f"📊 Total documents in DB: {count}")
+        
+        if count > 0:
+            print("\nFetching sample documents...")
+            points, _ = client.scroll(
+                collection_name=QDRANT_COLLECTION,
+                limit=50,
+                with_payload=True,
+                with_vectors=False
+            )
             
-        print("\nSource Breakdown:")
-        for src, count in sources.items():
-            print(f"- {src}: {count}")
+            sources = {}
+            for point in points:
+                payload = point.payload or {}
+                meta = payload.get('metadata', {})
+                # Handle flattened or nested metadata
+                src = meta.get('source') if isinstance(meta, dict) else payload.get('source', 'Unknown')
+                
+                sources[src] = sources.get(src, 0) + 1
+                
+            print("\nSource Breakdown (based on sample of 50):")
+            for src, c in sources.items():
+                print(f"- {src}: {c}")
 
-except Exception as e:
-    print(f"Error inspecting DB: {e}")
+    except Exception as e:
+        print(f"❌ Error inspecting DB: {e}")
+
+if __name__ == "__main__":
+    check_qdrant()

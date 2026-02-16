@@ -7,7 +7,19 @@ NOW DYNAMIC: Reads from portfolio.json
 import json
 import os
 
+# Load .env if available
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 PORTFOLIO_FILE = "portfolio.json"
+
+# Qdrant Configuration (loaded from .env)
+QDRANT_URL = os.environ.get("QDRANT_URL", "")
+QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY", "")
+QDRANT_COLLECTION = "financial_market_news"
 
 def load_portfolio():
     """Load portfolio from JSON file"""

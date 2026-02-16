@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
     Paperclip,
     MoveRight,
@@ -21,13 +21,26 @@ import {
     Search,
     Globe,
     Bitcoin,
-    DollarSign
+    DollarSign,
+    Zap,
+    Microscope,
+    ShieldAlert,
+    CheckCircle2,
+    AlertTriangle,
+    XCircle,
+    Clock,
+    Database,
+    Brain,
+    ChevronDown,
+    Reply,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import Ticker from './Ticker';
 
 const API_BASE = 'http://localhost:5001';
+
+type AnalysisMode = 'auto' | 'quick' | 'deep';
 
 interface Message {
     role: 'user' | 'assistant';
@@ -36,11 +49,23 @@ interface Message {
     route?: string;
     routeLabel?: string;
     routeEmoji?: string;
+    mode?: string;
+    confidence?: string;
+    confidenceReasons?: string[];
+    contradictions?: string[];
+    isFollowUp?: boolean;
+    elapsed?: number;
+    sourcesCount?: number;
+    symbols?: string[];
+    typingId?: string; // Unique ID for typewriter animation
 }
 
 interface ChatInterfaceProps {
     isSidebarOpen: boolean;
     onToggleSidebar: () => void;
+    messages: Message[];
+    setMessages: (updater: Message[] | ((prev: Message[]) => Message[])) => void;
+    ensureActiveSession: () => string;
 }
 
 // Professional suggestion prompts covering all capabilities
@@ -88,10 +113,10 @@ const SUGGESTIONS = [
         color: "purple",
     },
     {
-        icon: <Globe size={18} className="text-sky-400" />,
-        title: "Market Overview",
-        prompt: "How is the market today? What's moving?",
-        color: "sky",
+        icon: <Brain size={18} className="text-pink-400" />,
+        title: "Deep Analysis",
+        prompt: "Generate a bull and bear case for HDFC Bank",
+        color: "pink",
     },
 ];
 
@@ -107,20 +132,336 @@ const ROUTE_COLORS: Record<string, string> = {
     'DISCOVERY': 'bg-pink-500/15 text-pink-400 border-pink-500/30',
     'GENERAL': 'bg-sky-500/15 text-sky-400 border-sky-500/30',
     'CHAT': 'bg-zinc-500/15 text-zinc-400 border-zinc-500/30',
+    'SUGGESTION': 'bg-rose-500/15 text-rose-400 border-rose-500/30',
 };
 
-export default function ChatInterface({ isSidebarOpen, onToggleSidebar }: ChatInterfaceProps) {
-    const [messages, setMessages] = useState<Message[]>([]);
+// Confidence badge component
+function ConfidenceBadge({ level, reasons }: { level: string; reasons?: string[] }) {
+    const [showDetails, setShowDetails] = useState(false);
+    const config: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
+        HIGH: { icon: <CheckCircle2 size={12} />, color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', label: 'High Confidence' },
+        MEDIUM: { icon: <AlertTriangle size={12} />, color: 'bg-amber-500/15 text-amber-400 border-amber-500/30', label: 'Medium Confidence' },
+        LOW: { icon: <XCircle size={12} />, color: 'bg-red-500/15 text-red-400 border-red-500/30', label: 'Low Confidence' },
+    };
+    const c = config[level] || config.MEDIUM;
+
+    return (
+        <div className="relative inline-block">
+            <button
+                onClick={() => reasons?.length && setShowDetails(!showDetails)}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${c.color} ${reasons?.length ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}
+            >
+                {c.icon}
+                <span>{c.label}</span>
+                {reasons?.length ? <ChevronDown size={10} className={`transition-transform ${showDetails ? 'rotate-180' : ''}`} /> : null}
+            </button>
+            {showDetails && reasons && (
+                <div className="absolute top-full left-0 mt-1 z-50 w-64 bg-zinc-900 border border-zinc-700 rounded-lg p-3 shadow-xl">
+                    <div className="text-[11px] text-zinc-400 space-y-1">
+                        {reasons.map((r, i) => (
+                            <div key={i} className="flex items-start gap-1.5">
+                                <span className="shrink-0 mt-0.5">{r.startsWith('✅') ? '✅' : '⚠️'}</span>
+                                <span>{r.replace(/^[✅⚠️]\s*/, '')}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+// Mode selector component
+function ModeSelector({ mode, onChange }: { mode: AnalysisMode; onChange: (m: AnalysisMode) => void }) {
+    const modes: { value: AnalysisMode; label: string; icon: React.ReactNode; desc: string }[] = [
+        { value: 'auto', label: 'Auto', icon: <Sparkles size={14} />, desc: 'Auto-detect' },
+        { value: 'quick', label: 'Quick', icon: <Zap size={14} />, desc: '<30s' },
+        { value: 'deep', label: 'Deep', icon: <Microscope size={14} />, desc: '<3min' },
+    ];
+
+    return (
+        <div className="flex items-center bg-zinc-800/60 rounded-lg p-0.5 border border-zinc-700/40">
+            {modes.map((m) => (
+                <button
+                    key={m.value}
+                    type="button"
+                    onClick={() => onChange(m.value)}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-semibold transition-all ${mode === m.value
+                        ? m.value === 'deep'
+                            ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 shadow-sm'
+                            : m.value === 'quick'
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-sm'
+                                : 'bg-zinc-700 text-zinc-200 border border-zinc-600/50 shadow-sm'
+                        : 'text-zinc-500 hover:text-zinc-300 border border-transparent'
+                        }`}
+                    title={m.desc}
+                >
+                    {m.icon}
+                    <span>{m.label}</span>
+                </button>
+            ))}
+        </div>
+    );
+}
+
+// ============================================================================
+// TYPEWRITER HOOK — Smooth streaming like ChatGPT/Gemini
+// ============================================================================
+function useTypewriter(fullText: string, enabled: boolean, speed: number = 12) {
+    const [displayedText, setDisplayedText] = useState('');
+    const [isTyping, setIsTyping] = useState(false);
+    const [isDone, setIsDone] = useState(!enabled);
+    const indexRef = useRef(0);
+    const rafRef = useRef<number | null>(null);
+    const lastTimeRef = useRef(0);
+
+    useEffect(() => {
+        if (!enabled || !fullText) {
+            setDisplayedText(fullText);
+            setIsDone(true);
+            setIsTyping(false);
+            return;
+        }
+
+        // Reset on new text
+        indexRef.current = 0;
+        setDisplayedText('');
+        setIsTyping(true);
+        setIsDone(false);
+        lastTimeRef.current = 0;
+
+        const totalLen = fullText.length;
+
+        // Adaptive chunk size: bigger text → bigger chunks for smooth feel
+        const getChunkSize = () => {
+            const progress = indexRef.current / totalLen;
+            // Start slow (2-3 chars), ramp up to speed in middle, slow down at end
+            if (progress < 0.05) return Math.max(1, Math.floor(speed * 0.3));
+            if (progress > 0.95) return Math.max(2, Math.floor(speed * 0.5));
+            // Vary chunk size slightly for natural feel
+            return speed + Math.floor(Math.random() * 4) - 2;
+        };
+
+        // Interval between frames in ms — lower = faster
+        const getInterval = () => {
+            const progress = indexRef.current / totalLen;
+            const char = fullText[indexRef.current] || '';
+            // Pause slightly at newlines, headers, and punctuation for natural rhythm
+            if (char === '\n') return 30;
+            if (char === '#') return 15;
+            if ('.!?:'.includes(char)) return 25;
+            if (progress < 0.03) return 20; // Start gentle
+            return 8; // Fast cruise speed
+        };
+
+        const tick = (timestamp: number) => {
+            if (indexRef.current >= totalLen) {
+                setDisplayedText(fullText);
+                setIsTyping(false);
+                setIsDone(true);
+                return;
+            }
+
+            const elapsed = timestamp - lastTimeRef.current;
+            const interval = getInterval();
+
+            if (elapsed >= interval) {
+                const chunk = getChunkSize();
+                indexRef.current = Math.min(indexRef.current + chunk, totalLen);
+                setDisplayedText(fullText.slice(0, indexRef.current));
+                lastTimeRef.current = timestamp;
+            }
+
+            rafRef.current = requestAnimationFrame(tick);
+        };
+
+        rafRef.current = requestAnimationFrame(tick);
+
+        return () => {
+            if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        };
+    }, [fullText, enabled, speed]);
+
+    // Skip to end
+    const skipToEnd = useCallback(() => {
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        setDisplayedText(fullText);
+        setIsTyping(false);
+        setIsDone(true);
+    }, [fullText]);
+
+    return { displayedText, isTyping, isDone, skipToEnd };
+}
+
+// ============================================================================
+// TYPEWRITER MESSAGE COMPONENT
+// ============================================================================
+function TypewriterMessage({
+    msg,
+    shouldAnimate,
+    onTypingDone,
+}: {
+    msg: Message;
+    shouldAnimate: boolean;
+    onTypingDone?: () => void;
+}) {
+    const { displayedText, isTyping, isDone, skipToEnd } = useTypewriter(
+        msg.content,
+        shouldAnimate,
+        14 // chars per frame — fast but readable
+    );
+
+    // Notify parent when typing is done
+    useEffect(() => {
+        if (isDone && onTypingDone) onTypingDone();
+    }, [isDone, onTypingDone]);
+
+    const textToRender = shouldAnimate ? displayedText : msg.content;
+
+    return (
+        <div>
+            {/* AI Response Header: Route + Mode + Confidence + Follow-up */}
+            {msg.role === 'assistant' && !msg.isError && (
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                    {/* Route badge */}
+                    {msg.route && (
+                        <span className={`badge-animate inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border ${ROUTE_COLORS[msg.route] || ROUTE_COLORS['GENERAL']}`}>
+                            <span>{msg.routeEmoji}</span>
+                            <span>{msg.routeLabel}</span>
+                        </span>
+                    )}
+
+                    {/* Mode badge */}
+                    {msg.mode && (
+                        <span className={`badge-animate inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${msg.mode === 'deep'
+                            ? 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30'
+                            : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                            }`} style={{ animationDelay: '0.1s' }}>
+                            {msg.mode === 'deep' ? <Microscope size={10} /> : <Zap size={10} />}
+                            <span>{msg.mode === 'deep' ? 'Deep' : 'Quick'}</span>
+                        </span>
+                    )}
+
+                    {/* Confidence badge */}
+                    {msg.confidence && (
+                        <span className="badge-animate" style={{ animationDelay: '0.2s' }}>
+                            <ConfidenceBadge level={msg.confidence} reasons={msg.confidenceReasons} />
+                        </span>
+                    )}
+
+                    {/* Follow-up indicator */}
+                    {msg.isFollowUp && (
+                        <span className="badge-animate inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-sky-500/15 text-sky-400 border border-sky-500/30" style={{ animationDelay: '0.3s' }}>
+                            <Reply size={10} />
+                            <span>Follow-up</span>
+                        </span>
+                    )}
+                </div>
+            )}
+
+            {/* Contradictions Alert */}
+            {msg.role === 'assistant' && msg.contradictions && msg.contradictions.length > 0 && (
+                <div className="mb-3 bg-amber-500/5 border border-amber-500/20 rounded-lg p-3">
+                    <div className="flex items-center gap-1.5 text-amber-400 text-[11px] font-bold uppercase tracking-wider mb-1.5">
+                        <ShieldAlert size={13} />
+                        <span>Contradictions Detected</span>
+                    </div>
+                    {msg.contradictions.map((c, i) => (
+                        <div key={i} className="text-[12px] text-amber-300/80 leading-relaxed">
+                            {c.replace(/^⚠️\s*/, '')}
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* Content with typewriter */}
+            {msg.role === 'assistant' ? (
+                <div className="relative">
+                    <div className="prose prose-invert prose-sm max-w-none 
+                      prose-headings:text-zinc-100 prose-headings:font-bold prose-headings:mb-3 prose-headings:mt-6
+                      prose-h1:text-xl prose-h2:text-lg prose-h3:text-base
+                      prose-p:text-zinc-300 prose-p:leading-7 prose-p:mb-4
+                      prose-strong:text-white prose-strong:font-semibold
+                      prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline
+                      prose-code:text-emerald-300 prose-code:bg-zinc-900/50 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:border prose-code:border-zinc-800
+                      prose-pre:bg-zinc-900 prose-pre:border prose-pre:border-zinc-800 prose-pre:rounded-xl prose-pre:p-4
+                      prose-ul:text-zinc-300 prose-ul:my-4 prose-li:my-1
+                      prose-hr:border-zinc-800 prose-hr:my-6
+                      prose-blockquote:border-l-4 prose-blockquote:border-blue-500/50 prose-blockquote:bg-blue-500/5 prose-blockquote:px-4 prose-blockquote:py-1 prose-blockquote:rounded-r-lg prose-blockquote:italic prose-blockquote:text-zinc-400
+                      prose-table:border-collapse prose-th:border prose-th:border-zinc-700 prose-th:bg-zinc-800/50 prose-th:px-3 prose-th:py-2 prose-th:text-zinc-200 prose-th:text-xs prose-th:font-semibold
+                      prose-td:border prose-td:border-zinc-800 prose-td:px-3 prose-td:py-2 prose-td:text-zinc-300 prose-td:text-xs
+                    ">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{textToRender}</ReactMarkdown>
+                    </div>
+                    {/* Blinking cursor while typing */}
+                    {isTyping && <span className="typewriter-cursor" />}
+
+                    {/* Click to skip typing */}
+                    {isTyping && (
+                        <button
+                            onClick={skipToEnd}
+                            className="absolute -bottom-1 right-0 text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors flex items-center gap-1 opacity-60 hover:opacity-100"
+                        >
+                            <Zap size={10} />
+                            Skip
+                        </button>
+                    )}
+                </div>
+            ) : (
+                msg.content
+            )}
+
+            {/* Footer metadata — only visible after typing is done */}
+            {msg.role === 'assistant' && !msg.isError && isDone && (msg.elapsed || msg.sourcesCount) && (
+                <div className="footer-fade-in mt-4 pt-3 border-t border-zinc-800/60 flex flex-wrap items-center gap-3 text-[13px] text-white">
+                    {msg.elapsed && (
+                        <span className="inline-flex items-center gap-1">
+                            <Clock size={10} />
+                            {msg.elapsed}s
+                        </span>
+                    )}
+                    {msg.sourcesCount != null && msg.sourcesCount > 0 && (
+                        <span className="inline-flex items-center gap-1">
+                            <Database size={10} />
+                            {msg.sourcesCount} sources
+                        </span>
+                    )}
+                    {msg.symbols && msg.symbols.length > 0 && (
+                        <span className="inline-flex items-center gap-1">
+                            <TrendingUp size={10} />
+                            {msg.symbols.join(', ')}
+                        </span>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
+export default function ChatInterface({ isSidebarOpen, onToggleSidebar, messages, setMessages, ensureActiveSession }: ChatInterfaceProps) {
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [isConnected, setIsConnected] = useState<boolean | null>(null);
     const [currentRoute, setCurrentRoute] = useState<string | null>(null);
+    const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('auto');
+    const [engineVersion, setEngineVersion] = useState('');
+    const [typingId, setTypingId] = useState<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    // Auto-scroll to bottom on new messages
+    // Auto-scroll to bottom on new messages & during typing
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages, isLoading]);
+    }, [messages, isLoading, typingId]);
+
+    // Scroll during typing animation  
+    useEffect(() => {
+        if (typingId !== null) {
+            const scrollInterval = setInterval(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }, 150);
+            return () => clearInterval(scrollInterval);
+        }
+    }, [typingId]);
 
     // Check backend health on mount
     useEffect(() => {
@@ -129,6 +470,8 @@ export default function ChatInterface({ isSidebarOpen, onToggleSidebar }: ChatIn
                 const res = await fetch(`${API_BASE}/api/health`);
                 if (res.ok) {
                     setIsConnected(true);
+                    const data = await res.json();
+                    setEngineVersion(data.engine || 'MarketMind');
                 } else {
                     setIsConnected(false);
                 }
@@ -143,6 +486,9 @@ export default function ChatInterface({ isSidebarOpen, onToggleSidebar }: ChatIn
         e.preventDefault();
         const query = input.trim();
         if (!query || isLoading) return;
+
+        // Auto-create session if none exists
+        ensureActiveSession();
 
         // Check for special commands
         if (query === '/briefing') {
@@ -161,20 +507,31 @@ export default function ChatInterface({ isSidebarOpen, onToggleSidebar }: ChatIn
             const res = await fetch(`${API_BASE}/api/analyze`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query }),
+                body: JSON.stringify({ query, mode: analysisMode }),
             });
 
             const data = await res.json();
 
-            if (data.success) {
+            if (data.success !== false) {
+                const msgTypingId = `typing-${Date.now()}`;
                 const aiMsg: Message = {
                     role: 'assistant',
                     content: data.report,
                     route: data.route,
                     routeLabel: data.route_label,
                     routeEmoji: data.route_emoji,
+                    mode: data.mode,
+                    confidence: data.confidence,
+                    confidenceReasons: data.confidence_reasons,
+                    contradictions: data.contradictions,
+                    isFollowUp: data.is_follow_up,
+                    elapsed: data.elapsed,
+                    sourcesCount: data.sources_count,
+                    symbols: data.symbols,
+                    typingId: msgTypingId,
                 };
                 setMessages(prev => [...prev, aiMsg]);
+                setTimeout(() => setTypingId(msgTypingId), 0);
                 setCurrentRoute(data.route);
             } else {
                 const errMsg: Message = {
@@ -197,6 +554,9 @@ export default function ChatInterface({ isSidebarOpen, onToggleSidebar }: ChatIn
     };
 
     const fetchMorningBriefing = async () => {
+        // Auto-create session if none exists
+        ensureActiveSession();
+
         const userMsg: Message = { role: 'user', content: '☀️ Morning Briefing' };
         setMessages(prev => [...prev, userMsg]);
         setIsLoading(true);
@@ -206,14 +566,18 @@ export default function ChatInterface({ isSidebarOpen, onToggleSidebar }: ChatIn
             const data = await res.json();
 
             if (data.success) {
+                const msgTypingId = `typing-${Date.now()}`;
                 const aiMsg: Message = {
                     role: 'assistant',
                     content: data.report,
                     route: data.route,
-                    routeLabel: data.route_label,
-                    routeEmoji: data.route_emoji,
+                    routeLabel: data.route_label || 'Morning Briefing',
+                    routeEmoji: data.route_emoji || '☀️',
+                    confidence: data.confidence,
+                    typingId: msgTypingId,
                 };
                 setMessages(prev => [...prev, aiMsg]);
+                setTimeout(() => setTypingId(msgTypingId), 0);
             } else {
                 const errMsg: Message = {
                     role: 'assistant',
@@ -235,11 +599,13 @@ export default function ChatInterface({ isSidebarOpen, onToggleSidebar }: ChatIn
     };
 
     const handleSuggestionClick = (prompt: string) => {
+        // Auto-create session if none exists
+        ensureActiveSession();
+
         if (prompt === '/briefing') {
             fetchMorningBriefing();
         } else {
             setInput(prompt);
-            // Submit after a tick so input is set
             setTimeout(() => {
                 const form = document.getElementById('chat-form') as HTMLFormElement;
                 form?.requestSubmit();
@@ -273,7 +639,7 @@ export default function ChatInterface({ isSidebarOpen, onToggleSidebar }: ChatIn
                             <Sparkles size={14} className="text-white" />
                         </div>
                         <span className="font-semibold text-base text-zinc-100">MarketMind AI</span>
-                        <span className="px-2 py-0.5 rounded-full bg-zinc-800 text-[10px] uppercase font-bold text-zinc-400 border border-zinc-700/50 tracking-wider">PRO</span>
+                        <span className="px-2 py-0.5 rounded-full bg-indigo-500/10 text-[10px] uppercase font-bold text-indigo-400 border border-indigo-500/20 tracking-wider">LangGraph</span>
                     </div>
                 </div>
 
@@ -307,18 +673,25 @@ export default function ChatInterface({ isSidebarOpen, onToggleSidebar }: ChatIn
                                     <Sparkles size={32} className="text-white" />
                                 </div>
                                 <h2 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-zinc-200 to-zinc-500 pb-1">
-                                    Your All-Rounder Financial Agent
+                                    Your AI Financial Research Agent
                                 </h2>
                                 <p className="text-sm text-zinc-400 max-w-lg mx-auto leading-relaxed">
-                                    Powered by <span className="text-zinc-200 font-medium">Gemini 2.5</span> + <span className="text-zinc-200 font-medium">Real-time Market Data</span>.
-                                    Stocks, crypto, fundamentals, technicals, news — all in one place.
+                                    Powered by <span className="text-indigo-400 font-medium">LangGraph</span> + <span className="text-zinc-200 font-medium">Gemini 2.5</span> + <span className="text-zinc-200 font-medium">Real-time Data</span>.
+                                    Memory-aware research with confidence scoring.
                                 </p>
+                                {/* Feature badges */}
+                                <div className="flex items-center justify-center gap-2 flex-wrap">
+                                    <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-bold uppercase tracking-wider border border-emerald-500/20">⚡ Quick &lt;30s</span>
+                                    <span className="px-2.5 py-1 rounded-full bg-indigo-500/10 text-indigo-400 text-[10px] font-bold uppercase tracking-wider border border-indigo-500/20">🔬 Deep &lt;3min</span>
+                                    <span className="px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400 text-[10px] font-bold uppercase tracking-wider border border-amber-500/20">🧠 Memory</span>
+                                    <span className="px-2.5 py-1 rounded-full bg-rose-500/10 text-rose-400 text-[10px] font-bold uppercase tracking-wider border border-rose-500/20">⚠️ Contradictions</span>
+                                </div>
                                 {/* Coverage badges */}
                                 <div className="flex items-center justify-center gap-2 flex-wrap">
-                                    <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-bold uppercase tracking-wider border border-emerald-500/20">Indian NSE</span>
-                                    <span className="px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-400 text-[10px] font-bold uppercase tracking-wider border border-blue-500/20">US NYSE/NASDAQ</span>
-                                    <span className="px-2.5 py-1 rounded-full bg-orange-500/10 text-orange-400 text-[10px] font-bold uppercase tracking-wider border border-orange-500/20">Crypto</span>
-                                    <span className="px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400 text-[10px] font-bold uppercase tracking-wider border border-amber-500/20">Commodities</span>
+                                    <span className="px-2.5 py-1 rounded-full bg-zinc-800 text-zinc-400 text-[10px] font-bold uppercase tracking-wider border border-zinc-700/50">Indian NSE</span>
+                                    <span className="px-2.5 py-1 rounded-full bg-zinc-800 text-zinc-400 text-[10px] font-bold uppercase tracking-wider border border-zinc-700/50">US NYSE/NASDAQ</span>
+                                    <span className="px-2.5 py-1 rounded-full bg-zinc-800 text-zinc-400 text-[10px] font-bold uppercase tracking-wider border border-zinc-700/50">Crypto</span>
+                                    <span className="px-2.5 py-1 rounded-full bg-zinc-800 text-zinc-400 text-[10px] font-bold uppercase tracking-wider border border-zinc-700/50">Commodities</span>
                                 </div>
                             </div>
 
@@ -344,12 +717,7 @@ export default function ChatInterface({ isSidebarOpen, onToggleSidebar }: ChatIn
                             </div>
 
                             {/* Quick action: Morning Briefing */}
-                            <button
-                                onClick={() => handleSuggestionClick('/briefing')}
-                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 hover:border-amber-500/40 text-amber-400 text-sm font-medium transition-all hover:shadow-lg hover:shadow-amber-500/5"
-                            >
-                                ☀️ Get Morning Briefing
-                            </button>
+                            
                         </div>
                     </div>
                 ) : (
@@ -357,8 +725,8 @@ export default function ChatInterface({ isSidebarOpen, onToggleSidebar }: ChatIn
                     <div className="max-w-3xl mx-auto w-full p-4 md:p-6 space-y-8 pb-40">
                         {messages.map((msg, idx) => (
                             <div
-                                key={idx}
-                                className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                                key={msg.typingId || idx}
+                                className={`flex w-full message-animate-in ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                             >
                                 <div
                                     className={`
@@ -371,33 +739,16 @@ export default function ChatInterface({ isSidebarOpen, onToggleSidebar }: ChatIn
                                         }
                   `}
                                 >
-                                    {/* Route Badge for AI responses */}
-                                    {msg.role === 'assistant' && msg.route && !msg.isError && (
-                                        <div className="mb-3">
-                                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border ${ROUTE_COLORS[msg.route] || ROUTE_COLORS['GENERAL']}`}>
-                                                <span>{msg.routeEmoji}</span>
-                                                <span>{msg.routeLabel}</span>
-                                            </span>
-                                        </div>
-                                    )}
-
                                     {msg.role === 'assistant' ? (
-                                        <div className="prose prose-invert prose-sm max-w-none 
-                      prose-headings:text-zinc-100 prose-headings:font-bold prose-headings:mb-3 prose-headings:mt-6
-                      prose-h1:text-xl prose-h2:text-lg prose-h3:text-base
-                      prose-p:text-zinc-300 prose-p:leading-7 prose-p:mb-4
-                      prose-strong:text-white prose-strong:font-semibold
-                      prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline
-                      prose-code:text-emerald-300 prose-code:bg-zinc-900/50 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:border prose-code:border-zinc-800
-                      prose-pre:bg-zinc-900 prose-pre:border prose-pre:border-zinc-800 prose-pre:rounded-xl prose-pre:p-4
-                      prose-ul:text-zinc-300 prose-ul:my-4 prose-li:my-1
-                      prose-hr:border-zinc-800 prose-hr:my-6
-                      prose-blockquote:border-l-4 prose-blockquote:border-blue-500/50 prose-blockquote:bg-blue-500/5 prose-blockquote:px-4 prose-blockquote:py-1 prose-blockquote:rounded-r-lg prose-blockquote:italic prose-blockquote:text-zinc-400
-                      prose-table:border-collapse prose-th:border prose-th:border-zinc-700 prose-th:bg-zinc-800/50 prose-th:px-3 prose-th:py-2 prose-th:text-zinc-200 prose-th:text-xs prose-th:font-semibold
-                      prose-td:border prose-td:border-zinc-800 prose-td:px-3 prose-td:py-2 prose-td:text-zinc-300 prose-td:text-xs
-                    ">
-                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                                        </div>
+                                        <TypewriterMessage
+                                            msg={msg}
+                                            shouldAnimate={!!msg.typingId && msg.typingId === typingId}
+                                            onTypingDone={() => {
+                                                if (msg.typingId === typingId) {
+                                                    setTypingId(null);
+                                                }
+                                            }}
+                                        />
                                     ) : (
                                         msg.content
                                     )}
@@ -406,17 +757,21 @@ export default function ChatInterface({ isSidebarOpen, onToggleSidebar }: ChatIn
                         ))}
 
                         {isLoading && (
-                            <div className="flex justify-start w-full animate-pulse">
-                                <div className="px-4 py-2 w-fit flex gap-3 items-center">
-                                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 animate-bounce">
-                                        <Sparkles size={16} className="text-white" />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <div className="h-4 w-32 bg-zinc-800/50 rounded-full" />
-                                        <div className="h-3 w-48 bg-zinc-800/30 rounded-full" />
-                                    </div>
+                            <div className="flex justify-start w-full px-4 py-10 mb-20 message-animate-in">
+                            <div className="flex items-center gap-4">
+                                {/* Soft, glowing icon container with a slow spin */}
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-50/80 to-purple-50/80 dark:from-indigo-500/10 dark:to-purple-500/10 border border-indigo-100 dark:border-indigo-500/20 flex items-center justify-center animate-[spin_4s_linear_infinite]">
+                                    <Sparkles size={14} className="text-indigo-600 dark:text-indigo-400" />
+                                </div>
+                        
+                                {/* Smooth pulsing text instead of blocky skeletons */}
+                                <div className="flex items-center gap-2 animate-pulse duration-1000">
+                                    <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                                        {analysisMode === 'deep' ? 'Deep analysis in progress...' : 'Thinking...'}
+                                    </span>
                                 </div>
                             </div>
+                        </div>
                         )}
                         <div ref={messagesEndRef} />
                     </div>
@@ -433,19 +788,20 @@ export default function ChatInterface({ isSidebarOpen, onToggleSidebar }: ChatIn
                         onSubmit={handleSend}
                         className="relative flex items-end gap-2 bg-zinc-900 border border-zinc-700/60 rounded-2xl p-2 shadow-2xl shadow-black/60 focus-within:ring-1 focus-within:ring-zinc-600 focus-within:border-zinc-600 transition-all"
                     >
-                        <button
-                            type="button"
-                            className="p-3 text-zinc-500 hover:text-white transition-colors rounded-xl hover:bg-zinc-800"
-                            title="Attach file"
-                        >
-                            <Paperclip size={20} />
-                        </button>
+                        {/* Mode Selector */}
+                        <ModeSelector mode={analysisMode} onChange={setAnalysisMode} />
 
                         <input
                             type="text"
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
-                            placeholder="Ask about any stock, crypto, or market trend..."
+                            placeholder={
+                                analysisMode === 'deep'
+                                    ? "Deep analysis — bull/bear thesis, investment memos..."
+                                    : analysisMode === 'quick'
+                                        ? "Quick lookup — prices, summaries, key data..."
+                                        : "Ask about any stock, crypto, or market trend..."
+                            }
                             className="flex-1 bg-transparent border-none outline-none text-white py-3.5 px-2 placeholder:text-zinc-500 text-sm font-medium"
                             disabled={isLoading}
                         />
@@ -464,7 +820,7 @@ export default function ChatInterface({ isSidebarOpen, onToggleSidebar }: ChatIn
                         </button>
                     </form>
                     <div className="text-center mt-3 text-xs text-zinc-600 font-medium">
-                        MarketMind AI &middot; 10 Smart Routes &middot; Indian + US + Crypto + Commodities
+                        MarketMind AI &middot; LangGraph Research Agent &middot; Quick ⚡ &amp; Deep 🔬 Modes
                     </div>
                 </div>
             </div>

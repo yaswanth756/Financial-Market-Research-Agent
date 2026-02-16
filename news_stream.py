@@ -10,21 +10,26 @@ warnings.filterwarnings('ignore')
 os.environ['HF_HUB_DISABLE_SSL_VERIFY'] = '1'
 os.environ['CURL_CA_BUNDLE'] = ''
 
-from langchain_chroma import Chroma
+from langchain_qdrant import QdrantVectorStore
+from qdrant_client import QdrantClient
+from qdrant_client.http import models
+from user_config import QDRANT_URL, QDRANT_API_KEY, QDRANT_COLLECTION
 from langchain_core.documents import Document
 from sentence_transformers import SentenceTransformer
 
+from langchain_core.embeddings import Embeddings
+
 # Custom embedding class that works offline
-class LocalEmbeddings:
+class LocalEmbeddings(Embeddings):
     def __init__(self, model_name="all-MiniLM-L6-v2"):
         print("🔄 Loading local embedding model...")
         self.model = SentenceTransformer(model_name)
         print("✅ Model loaded!")
     
-    def embed_documents(self, texts):
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
         return self.model.encode(texts).tolist()
     
-    def embed_query(self, text):
+    def embed_query(self, text: str) -> list[float]:
         return self.model.encode(text).tolist()
 
 # RELIABLE WORKING FEEDS (tested & verified)
@@ -58,9 +63,28 @@ def fetch_rss(url):
         pass
     return feedparser.FeedParserDict(entries=[])
 
-# Initialize LOCAL embeddings (NO API, NO SSL issues!)
+# Initialize Qdrant Client & Vector Store
+print(f"🔄 Connecting to Qdrant Cloud...")
+client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 embeddings = LocalEmbeddings()
-db = Chroma(persist_directory="./market_mind_db", embedding_function=embeddings)
+
+# Check if collection exists, if not create it
+try:
+    client.get_collection(QDRANT_COLLECTION)
+    print(f"✅ Connected to collection: {QDRANT_COLLECTION}")
+except Exception:
+    print(f"⚠️ Collection '{QDRANT_COLLECTION}' not found. Creating...")
+    client.create_collection(
+        collection_name=QDRANT_COLLECTION,
+        vectors_config=models.VectorParams(size=384, distance=models.Distance.COSINE)
+    )
+    print(f"✅ Created collection: {QDRANT_COLLECTION}")
+
+db = QdrantVectorStore(
+    client=client,
+    collection_name=QDRANT_COLLECTION,
+    embedding=embeddings
+)
 
 def get_article_id(url):
     return hashlib.md5(url.encode()).hexdigest()
@@ -95,10 +119,17 @@ def listen_to_news():
                     if not is_strict_finance(full_text):
                         continue 
 
-                    existing = db.get(ids=[uid])
-                    if len(existing['ids']) > 0:
-                        seen_ids.add(uid)
-                        continue
+                    # Check existence using Qdrant Client directly
+                    try:
+                        existing = client.retrieve(
+                            collection_name=QDRANT_COLLECTION,
+                            ids=[uid]
+                        )
+                        if existing:
+                            seen_ids.add(uid)
+                            continue
+                    except Exception:
+                        pass
 
                     print(f"   💰 {title[:65]}...")
                     doc = Document(page_content=full_text, metadata={"source": name, "url": url})

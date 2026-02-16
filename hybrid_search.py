@@ -28,24 +28,28 @@ import os
 import re
 import numpy as np
 from rank_bm25 import BM25Okapi
-from langchain_chroma import Chroma
-from sentence_transformers import SentenceTransformer
 from duckduckgo_search import DDGS  # New: Web Search
+from sentence_transformers import SentenceTransformer
+from langchain_qdrant import QdrantVectorStore
+from qdrant_client import QdrantClient
+from user_config import QDRANT_URL, QDRANT_API_KEY, QDRANT_COLLECTION
 
 os.environ['HF_HUB_DISABLE_SSL_VERIFY'] = '1'
 
 
+from langchain_core.embeddings import Embeddings
+
 # ============================================================================
 # LOCAL EMBEDDINGS (Same interface as other files)
 # ============================================================================
-class LocalEmbeddings:
+class LocalEmbeddings(Embeddings):
     def __init__(self, model_name="all-MiniLM-L6-v2"):
         self.model = SentenceTransformer(model_name)
     
-    def embed_documents(self, texts):
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
         return self.model.encode(texts).tolist()
     
-    def embed_query(self, text):
+    def embed_query(self, text: str) -> list[float]:
         return self.model.encode(text).tolist()
 
 
@@ -80,33 +84,58 @@ class BM25Index:
         self.bm25 = None
         self.is_built = False
     
-    def build_from_chroma(self, chroma_db: Chroma):
+    def build_from_qdrant(self, client: QdrantClient, collection_name: str):
         """
-        Build BM25 index from all documents in ChromaDB.
-        This syncs the keyword index with the vector index.
+        Build BM25 index from all documents in Qdrant.
         """
-        print("🔄 Building BM25 index from ChromaDB...")
+        print("🔄 Building BM25 index from Qdrant...")
         
-        # Fetch ALL documents from ChromaDB
         try:
-            all_data = chroma_db.get(include=["documents", "metadatas"])
-            
-            if not all_data['documents']:
-                print("   ⚠️ No documents in ChromaDB!")
-                return
-            
+            # Scroll through all points
             self.documents = []
             self.tokenized_docs = []
             
-            for doc_content, metadata in zip(all_data['documents'], all_data['metadatas']):
-                self.documents.append((doc_content, metadata or {}))
-                self.tokenized_docs.append(tokenize(doc_content))
+            offset = None
+            total_docs = 0
+            
+            while True:
+                points, offset = client.scroll(
+                    collection_name=collection_name,
+                    limit=100,
+                    with_payload=True,
+                    with_vectors=False,
+                    scroll_filter=None,
+                    offset=offset
+                )
+                
+                for point in points:
+                    payload = point.payload or {}
+                    content = payload.get("page_content", "")
+                    metadata = payload.get("metadata", {})
+                    # If metadata is nested or flat, handle it. Langchain stores metadata in payload usually under 'metadata' key or flat.
+                    # LangChain Qdrant stores: specific payload keys found in metadata.
+                    # QdrantVectorStore typically stores page_content in 'page_content' and metadata in 'metadata'.
+                    
+                    if not content:
+                        continue
+
+                    self.documents.append((content, metadata))
+                    self.tokenized_docs.append(tokenize(content))
+                    total_docs += 1
+                
+                if offset is None:
+                    break
+            
+            if not self.documents:
+                print("   ⚠️ No documents in Qdrant!")
+                return
             
             # Build BM25 index
             self.bm25 = BM25Okapi(self.tokenized_docs)
             self.is_built = True
             
-            print(f"   ✅ BM25 index built with {len(self.documents)} documents")
+            print(f"   ✅ BM25 index built with {total_docs} documents")
+
         except Exception as e:
             print(f"   ❌ BM25 Build Error: {e}")
     
@@ -209,15 +238,25 @@ class HybridSearchEngine:
         
         # Vector search
         self.embeddings = LocalEmbeddings()
-        self.chroma_db = Chroma(
-            persist_directory=db_path,
-            embedding_function=self.embeddings
-        )
-        print("   ✅ ChromaDB (Vector Search) connected")
+        
+        print("   🔄 Connecting to Qdrant Cloud...")
+        try:
+            self.client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+            self.vector_store = QdrantVectorStore(
+                client=self.client,
+                collection_name=QDRANT_COLLECTION,
+                embedding=self.embeddings
+            )
+            print("   ✅ Qdrant (Vector Search) connected")
+        except Exception as e:
+             print(f"   ❌ Qdrant Connection Error: {e}")
+             self.client = None
+             self.vector_store = None
         
         # Keyword search
         self.bm25_index = BM25Index()
-        self._sync_bm25()
+        if self.client:
+            self._sync_bm25()
         
         # Track last sync time
         self._doc_count = self._get_doc_count()
@@ -226,16 +265,18 @@ class HybridSearchEngine:
         print("🔀 Hybrid Search Engine ready!\n")
     
     def _get_doc_count(self) -> int:
-        """Get current document count in ChromaDB"""
+        """Get current document count"""
         try:
-            all_data = self.chroma_db.get()
-            return len(all_data['ids'])
+            if self.client:
+                return self.client.count(QDRANT_COLLECTION).count
+            return 0
         except Exception:
             return 0
     
     def _sync_bm25(self):
-        """Rebuild BM25 index from ChromaDB"""
-        self.bm25_index.build_from_chroma(self.chroma_db)
+        """Rebuild BM25 index from Qdrant"""
+        if self.client:
+            self.bm25_index.build_from_qdrant(self.client, QDRANT_COLLECTION)
     
     def _check_sync(self):
         """Check if BM25 index needs to be rebuilt (new docs added)"""
@@ -264,15 +305,17 @@ class HybridSearchEngine:
         print(f"   🔎 Vector Search: '{query[:50]}...'")
         vector_results = []
         try:
-            if use_hyde_embedding:
-                vector_results_raw = self.chroma_db.similarity_search_by_vector(
+            if use_hyde_embedding and self.vector_store:
+                vector_results_raw = self.vector_store.similarity_search_by_vector(
                     use_hyde_embedding, k=top_k
                 )
-            else:
+            elif self.vector_store:
                 embedding = self.embeddings.embed_query(query)
-                vector_results_raw = self.chroma_db.similarity_search_by_vector(
+                vector_results_raw = self.vector_store.similarity_search_by_vector(
                     embedding, k=top_k
                 )
+            else:
+                 vector_results_raw = []
             
             for rank, doc in enumerate(vector_results_raw, 1):
                 score = 1.0 / rank  # Simple rank-based score

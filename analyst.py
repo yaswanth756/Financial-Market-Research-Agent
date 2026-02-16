@@ -84,7 +84,11 @@ def _patched_async_init(self, *args, **kwargs):
     return _original_async_init(self, *args, **kwargs)
 httpx.AsyncClient.__init__ = _patched_async_init
 
-GEMINI_API_KEY = "AIzaSyDfiSt5KeM7Y6lOw91lZ86HhHthmKjP-YI"
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+if not GEMINI_API_KEY:
+    from dotenv import load_dotenv
+    load_dotenv()
+    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 
