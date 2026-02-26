@@ -1,6 +1,6 @@
 """
 The Analyst Layer - Powered by Gemini 2.5
-==========================================
+
 Phase 9: PROFESSIONAL ALL-ROUNDER QUERY ROUTING
 
 10 Smart Routes:
@@ -55,9 +55,9 @@ from hybrid_search import HybridSearchEngine
 from user_config import PORTFOLIO, USER_PROFILE, is_relevant_to_portfolio
 from duckduckgo_search import DDGS
 
-# ============================================================================
+
 # GEMINI 2.5 SETUP
-# ============================================================================
+
 
 from google import genai
 from google.genai import types
@@ -195,6 +195,8 @@ STOCK_NAME_MAP = {
     "crude oil": "CRUDE", "crude": "CRUDE", "oil": "CRUDE",
     "natural gas": "NATURALGAS",
 }
+
+
 
 
 def resolve_stock_from_query(query: str) -> list:

@@ -73,9 +73,8 @@ def health():
         "coverage": ["Indian (NSE)", "US (NYSE/NASDAQ)", "Crypto", "Commodities"],
     })
 
-# ============================================================================
 # PORTFOLIO CRUD
-# ============================================================================
+
 @app.route('/api/portfolio', methods=['GET'])
 def get_portfolio():
     from user_config import load_portfolio

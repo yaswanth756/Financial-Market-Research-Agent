@@ -377,19 +377,24 @@ function TypewriterMessage({
             {/* Content with typewriter */}
             {msg.role === 'assistant' ? (
                 <div className="relative">
-                    <div className="prose prose-invert prose-sm max-w-none 
-                      prose-headings:text-zinc-100 prose-headings:font-bold prose-headings:mb-3 prose-headings:mt-6
-                      prose-h1:text-xl prose-h2:text-lg prose-h3:text-base
-                      prose-p:text-zinc-300 prose-p:leading-7 prose-p:mb-4
-                      prose-strong:text-white prose-strong:font-semibold
-                      prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline
-                      prose-code:text-emerald-300 prose-code:bg-zinc-900/50 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:border prose-code:border-zinc-800
-                      prose-pre:bg-zinc-900 prose-pre:border prose-pre:border-zinc-800 prose-pre:rounded-xl prose-pre:p-4
-                      prose-ul:text-zinc-300 prose-ul:my-4 prose-li:my-1
+                    <div className="prose prose-invert max-w-none prose-response
+                      prose-headings:text-zinc-50 prose-headings:font-bold prose-headings:tracking-tight
+                      prose-h1:text-[1.35rem] prose-h1:leading-snug prose-h1:mb-4 prose-h1:mt-6
+                      prose-h2:text-[1.2rem] prose-h2:leading-snug prose-h2:mb-3 prose-h2:mt-5
+                      prose-h3:text-[1.05rem] prose-h3:leading-snug prose-h3:mb-2.5 prose-h3:mt-4
+                      prose-p:text-[0.95rem] prose-p:text-zinc-200 prose-p:leading-[1.8] prose-p:mb-4 prose-p:font-normal
+                      prose-strong:text-white prose-strong:font-bold
+                      prose-em:text-zinc-300
+                      prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-a:font-medium
+                      prose-code:text-emerald-300 prose-code:bg-zinc-800/70 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-[0.85rem] prose-code:font-medium prose-code:border prose-code:border-zinc-700/50
+                      prose-pre:bg-zinc-900 prose-pre:border prose-pre:border-zinc-800 prose-pre:rounded-xl prose-pre:p-4 prose-pre:my-4
+                      prose-ul:text-zinc-200 prose-ul:my-3 prose-ul:text-[0.95rem]
+                      prose-ol:text-zinc-200 prose-ol:my-3 prose-ol:text-[0.95rem]
+                      prose-li:my-1.5 prose-li:leading-[1.75] prose-li:text-zinc-200
                       prose-hr:border-zinc-800 prose-hr:my-6
-                      prose-blockquote:border-l-4 prose-blockquote:border-blue-500/50 prose-blockquote:bg-blue-500/5 prose-blockquote:px-4 prose-blockquote:py-1 prose-blockquote:rounded-r-lg prose-blockquote:italic prose-blockquote:text-zinc-400
-                      prose-table:border-collapse prose-th:border prose-th:border-zinc-700 prose-th:bg-zinc-800/50 prose-th:px-3 prose-th:py-2 prose-th:text-zinc-200 prose-th:text-xs prose-th:font-semibold
-                      prose-td:border prose-td:border-zinc-800 prose-td:px-3 prose-td:py-2 prose-td:text-zinc-300 prose-td:text-xs
+                      prose-blockquote:border-l-[3px] prose-blockquote:border-indigo-500/40 prose-blockquote:bg-indigo-500/5 prose-blockquote:px-4 prose-blockquote:py-2 prose-blockquote:rounded-r-lg prose-blockquote:text-zinc-300 prose-blockquote:text-[0.95rem]
+                      prose-table:border-collapse prose-th:border prose-th:border-zinc-700 prose-th:bg-zinc-800/60 prose-th:px-3 prose-th:py-2.5 prose-th:text-zinc-100 prose-th:text-[0.8rem] prose-th:font-semibold prose-th:uppercase prose-th:tracking-wide
+                      prose-td:border prose-td:border-zinc-800 prose-td:px-3 prose-td:py-2 prose-td:text-zinc-200 prose-td:text-[0.85rem]
                     ">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{textToRender}</ReactMarkdown>
                     </div>
@@ -413,22 +418,22 @@ function TypewriterMessage({
 
             {/* Footer metadata — only visible after typing is done */}
             {msg.role === 'assistant' && !msg.isError && isDone && (msg.elapsed || msg.sourcesCount) && (
-                <div className="footer-fade-in mt-4 pt-3 border-t border-zinc-800/60 flex flex-wrap items-center gap-3 text-[13px] text-white">
+                <div className="footer-fade-in mt-5 pt-3 border-t border-zinc-800/50 flex flex-wrap items-center gap-4 text-[11px] text-zinc-500 font-medium tracking-wide">
                     {msg.elapsed && (
-                        <span className="inline-flex items-center gap-1">
-                            <Clock size={10} />
+                        <span className="inline-flex items-center gap-1.5">
+                            <Clock size={11} className="text-zinc-600" />
                             {msg.elapsed}s
                         </span>
                     )}
                     {msg.sourcesCount != null && msg.sourcesCount > 0 && (
-                        <span className="inline-flex items-center gap-1">
-                            <Database size={10} />
+                        <span className="inline-flex items-center gap-1.5">
+                            <Database size={11} className="text-zinc-600" />
                             {msg.sourcesCount} sources
                         </span>
                     )}
                     {msg.symbols && msg.symbols.length > 0 && (
-                        <span className="inline-flex items-center gap-1">
-                            <TrendingUp size={10} />
+                        <span className="inline-flex items-center gap-1.5">
+                            <TrendingUp size={11} className="text-zinc-600" />
                             {msg.symbols.join(', ')}
                         </span>
                     )}

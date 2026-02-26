@@ -82,14 +82,16 @@
 body {
   background-color: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
-
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-/* Custom Scrollbar */
+/* Custom Scrollbar — Minimal */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -97,11 +99,23 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-zinc-700/50 rounded-full;
+  background: rgba(113, 113, 122, 0.25);
+  border-radius: 100px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-zinc-600/80;
+  background: rgba(113, 113, 122, 0.45);
+}
+
+/* Only show scrollbar on hover for chat area */
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+.custom-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: rgba(113, 113, 122, 0.2);
+}
+.custom-scrollbar:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(113, 113, 122, 0.4);
 }
 
 /* Typewriter cursor blink */
@@ -114,12 +128,11 @@ body {
   display: inline-block;
   width: 2px;
   height: 1.1em;
-  background: linear-gradient(to bottom, #818cf8, #6366f1);
-  margin-left: 2px;
+  background: #a1a1aa;
+  margin-left: 1px;
   vertical-align: text-bottom;
-  animation: blink 0.8s ease-in-out infinite;
+  animation: blink 1s ease-in-out infinite;
   border-radius: 1px;
-  box-shadow: 0 0 8px rgba(99, 102, 241, 0.5);
 }
 
 /* Message fade-in + slide-up */
@@ -168,4 +181,155 @@ body {
 
 .badge-animate {
   animation: badgePopIn 0.3s ease-out forwards;
+}
+
+/* ========================================================================
+   PROSE RESPONSE — Professional markdown output like ChatGPT / Claude
+   ======================================================================== */
+
+.prose-response {
+  font-size: 0.95rem;
+  line-height: 1.8;
+  color: #d4d4d8;
+}
+
+/* Headings — bold, bright, well-spaced */
+.prose-response h1,
+.prose-response h2,
+.prose-response h3,
+.prose-response h4 {
+  color: #fafafa;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.prose-response h1 { font-size: 1.35rem; }
+.prose-response h2 { font-size: 1.2rem; }
+.prose-response h3 { font-size: 1.05rem; }
+
+/* Paragraphs — readable, bright */
+.prose-response p {
+  color: #e4e4e7;
+  margin-bottom: 1em;
+  font-size: 0.95rem;
+  line-height: 1.8;
+}
+
+/* Bold — white and prominent */
+.prose-response strong {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+/* Italic */
+.prose-response em {
+  color: #d4d4d8;
+}
+
+/* Links */
+.prose-response a {
+  color: #93c5fd;
+  text-decoration: none;
+  font-weight: 500;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s ease;
+}
+
+.prose-response a:hover {
+  border-bottom-color: #93c5fd;
+}
+
+/* Inline code */
+.prose-response code {
+  color: #6ee7b7;
+  background: rgba(39, 39, 42, 0.7);
+  padding: 0.15em 0.4em;
+  border-radius: 5px;
+  font-size: 0.85em;
+  font-family: var(--font-geist-mono), 'SF Mono', 'Fira Code', monospace;
+  border: 1px solid rgba(63, 63, 70, 0.5);
+}
+
+/* Code blocks */
+.prose-response pre {
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+
+.prose-response pre code {
+  background: none;
+  padding: 0;
+  border: none;
+  font-size: 0.8125rem;
+  color: #e4e4e7;
+}
+
+/* Lists — bright and readable */
+.prose-response ul,
+.prose-response ol {
+  margin: 0.75em 0;
+  padding-left: 1.5em;
+  color: #e4e4e7;
+}
+
+.prose-response li {
+  margin: 0.4em 0;
+  color: #e4e4e7;
+  line-height: 1.75;
+  font-size: 0.95rem;
+}
+
+.prose-response li::marker {
+  color: #52525b;
+}
+
+/* Blockquotes */
+.prose-response blockquote {
+  border-left: 3px solid rgba(99, 102, 241, 0.4);
+  padding: 0.5em 1em;
+  margin: 1em 0;
+  color: #d4d4d8;
+  background: rgba(99, 102, 241, 0.04);
+  border-radius: 0 8px 8px 0;
+  font-size: 0.95rem;
+}
+
+/* Horizontal rule */
+.prose-response hr {
+  border-color: #27272a;
+  margin: 1.5em 0;
+}
+
+/* Tables — clean minimal */
+.prose-response table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  font-size: 0.85rem;
+}
+
+.prose-response thead th {
+  background: rgba(39, 39, 42, 0.6);
+  padding: 0.625rem 0.75rem;
+  text-align: left;
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: #fafafa;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid #3f3f46;
+}
+
+.prose-response tbody td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(39, 39, 42, 0.5);
+  color: #e4e4e7;
+}
+
+.prose-response tbody tr:hover {
+  background: rgba(39, 39, 42, 0.2);
 }
